@@ -11,7 +11,7 @@ library(tidyverse)
 library(readxl)
 library(ggplot2)
 library(plotly)
-
+library(tools)
 
 ### dashboardPage, dashboardHeader, dashboardSidebar, y dashboardBody ##
 
@@ -22,8 +22,9 @@ ui<-dashboardPage(title = "Dashboard Shiny", skin = "red",
      sidebarMenu(
        menuItem("Lectura de datos", tabName = "Lectura", icon = icon("eye")),
        menuItem("Visualizacion de datos", tabName = "Visualizacion", 
-                icon = icon("arrow-right"))          
-              )
+                icon = icon("arrow-right")),       
+       uiOutput("controles_ejex")
+                 )
     
      ),
     
@@ -34,8 +35,10 @@ ui<-dashboardPage(title = "Dashboard Shiny", skin = "red",
                       box(
                       title = "Configuración", width = 6,
                       fileInput("Datos", "Cargar Datos", buttonLabel = "Buscar",
-                                placeholder = "No hay archivo Seleccionado")
-                  )
+                      placeholder = "No hay archivo Seleccionado"),
+                      uiOutput("controles_excel")
+                 
+                     )
                       
                   ),
                   fluidRow( # para extender de forma horizontal las cajas
@@ -46,26 +49,49 @@ ui<-dashboardPage(title = "Dashboard Shiny", skin = "red",
                                            
                                   ),
                           
-                                  tabPanel( 
+                             tabPanel( 
                                       "Datos Crudos", DTOutput("datoscrudos")
-                                  )
-                  ) 
+                         )
+                    ) 
                       
-                  )
+                )
                 
                   
-                  ),
-          tabItem(tabName = "Visualizacion")
+            ),
+          
+          tabItem(tabName = "Visualizacion", 
+                  box(title = "grafica", width = 9 ,
+                      plotOutput(outputId = "grafica"))
+                  )
+                 
+            )
         )
     )
     
-)
-
 
 server<- function(input, output){
-    datos_crudos<-reactive({
-        datos<-fread(input$Datos$datapath) ## para leer la data
-        return(datos)
+   output$controles_excel<-renderUI({
+       validate(need(
+           !is.null(input$Datos$datapath), "Esperando por Archivo"
+       ))
+       if(tolower(file_ext(input$Datos$datapath))%in% c("xlsx","xls")){
+          n <- excel_sheets(path=input$Datos$datapath)
+          sliderInput('HojasExcel', label = 'Hoja excel', min = 1, 
+                      max = length(n), value = 1, step = 1)
+       }  
+   })
+     datos_crudos<-reactive({
+        validate(need(
+                   !is.null(input$Datos$datapath), "Esperando por Archivo"
+        ))
+        if(tolower(file_ext(input$Datos$datapath))%in% c("xlsx","xls")){
+            datos<-read_excel(input$Datos$datapath, sheet = input$HojasExcel)
+            }
+        else{
+            datos<-fread(input$Datos$datapath)  ## para leer la data   
+       
+         }
+             return(datos)
         
     })
     
@@ -77,7 +103,38 @@ server<- function(input, output){
        return(str(datos_crudos()))    
    })
    
+   output$controles_ejex <- renderUI({
+       
+       selectInput(inputId = 'eje_x', label = 'Eje X', 
+                   choices = c('Ninguna', colnames(datos_crudos())),
+                   selected = 'Ninguna')
+      
+   })
    
+ output$grafica<-renderPlot({
+     datos<-as.data.frame(datos_crudos())
+     validate(
+        need(input$eje_x !="Ninguna", message = "selecciona la variable a graficar en el eje X")
+     )
+    
+     if(is.numeric(datos[, input$eje_x])){
+         ggplot(data = datos, aes_string(x=input$eje_x))+
+             geom_density(col="darkblue")
+       } else if(is.character(datos[,input$eje_x]) | is.factor(datos[,input$eje_x])){
+         
+         tab <- table(datos[,input$eje_x]) %>% 
+             as.data.frame()
+         colnames(tab) <- c(input$eje_x, 'Total')
+         
+         ggplot(data = tab, aes_string(x = input$eje_x, y = 'Total')) +
+             geom_bar(stat = 'identity')
+         
+         
+      }
+     
+ })
+   
+     
 } 
 
 
